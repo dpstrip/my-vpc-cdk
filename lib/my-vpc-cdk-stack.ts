@@ -12,7 +12,7 @@ export class MyVpcCdkStack extends cdk.Stack {
             ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/24'),
             subnetConfiguration: [{ 
                 name: 'isolated', 
-                subnetType: ec2.SubnetType.PRIVATE_ISOLATED 
+                subnetType: ec2.SubnetType.PRIVATE_ISOLATED
             }],
             gatewayEndpoints: {
                 s3: { service: ec2.GatewayVpcEndpointAwsService.S3 }
