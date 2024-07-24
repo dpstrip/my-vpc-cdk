@@ -3,72 +3,50 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
 
 export class MyVpcCdkStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
+  public readonly vpc: ec2.Vpc;
+    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+        super(scope, id, props);
 
-  // Create a VPC with 2 public subnets, 2 private subnets, and a NAT Gateway in AZ1
-    const vpc = new ec2.Vpc(this, 'my-cdk-vpc', {
-      ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
-      maxAzs: 2, // Ensure it only uses 2 AZs
-      subnetConfiguration: [
-        {
-          name: 'public-subnet-1',
-          subnetType: ec2.SubnetType.PUBLIC,
-          cidrMask: 24,
-        },
-        {
-          name: 'public-subnet-2',
-          subnetType: ec2.SubnetType.PUBLIC,
-          cidrMask: 24,
-        },
-        {
-          name: 'private-subnet-1',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-          cidrMask: 24,
-        },
-        {
-          name: 'private-subnet-2',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-          cidrMask: 24,
-        },
-      ],
-      natGateways: 1, // Number of NAT Gateways
-    });
+        this.vpc = new ec2.Vpc(this, 'Vpc', {
+            maxAzs: 2,
+            ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/24'),
+            subnetConfiguration: [{ 
+                name: 'isolated', 
+                subnetType: ec2.SubnetType.PRIVATE_ISOLATED 
+            }],
+            gatewayEndpoints: {
+                s3: { service: ec2.GatewayVpcEndpointAwsService.S3 }
+            }            
+        });
+        
+        this.vpc.isolatedSubnets.forEach(s => cdk.Tags.of(s).add(
+          'kubernetes.io/role/internal-elb',
+          '1'));
 
-    // Ensure the NAT Gateway is created in the first public subnet
-    const natGateway = new ec2.CfnNatGateway(this, 'NatGateway', {
-      subnetId: vpc.publicSubnets[0].subnetId,
-      allocationId: new ec2.CfnEIP(this, 'EIP', {
-        domain: 'vpc',
-      }).attrAllocationId,
-    });
+        const sg = new ec2.SecurityGroup(this, 'VpceSg', { vpc: this.vpc });
+        sg.addIngressRule(ec2.Peer.ipv4(this.vpc.vpcCidrBlock), ec2.Port.tcp(443));
 
-    // Update the Name tag for the VPC
-    cdk.Aspects.of(vpc).add(new cdk.Tag('Name', 'my-cdk-vpc'));
-
-    // Update the Name tag for public subnets
-    for (const subnet of vpc.publicSubnets) {
-      cdk.Aspects.of(subnet).add(
-        new cdk.Tag(
-          'Name',
-          `${vpc.node.id}-${subnet.node.id.replace(/Subnet[0-9]$/, '')}-${subnet.availabilityZone}`,
-        ),
-      );
-    }
-
-    // Update the Name tag for private subnets
-    for (const subnet of vpc.privateSubnets) {
-      cdk.Aspects.of(subnet).add(
-        new cdk.Tag(
-          'Name',
-          `${vpc.node.id}-${subnet.node.id.replace(/Subnet[0-9]$/, '')}-${subnet.availabilityZone}`,
-        ),
-      );
-    }
-
-    new cdk.CfnOutput(this, 'vpcId', {
-      value: vpc.vpcId,
-      description: 'The ID of the VPC',
-    });
+        [
+            ec2.InterfaceVpcEndpointAwsService.AUTOSCALING,
+            ec2.InterfaceVpcEndpointAwsService.CLOUDFORMATION,
+            ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
+            ec2.InterfaceVpcEndpointAwsService.EC2,
+            ec2.InterfaceVpcEndpointAwsService.ECR,
+            ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
+            ec2.InterfaceVpcEndpointAwsService.EKS,
+            //ec2.InterfaceVpcEndpointAwsService.EKS_AUTH,
+            ec2.InterfaceVpcEndpointAwsService.ELASTIC_LOAD_BALANCING,
+            ec2.InterfaceVpcEndpointAwsService.KMS,
+            ec2.InterfaceVpcEndpointAwsService.LAMBDA,
+            ec2.InterfaceVpcEndpointAwsService.STEP_FUNCTIONS,
+            ec2.InterfaceVpcEndpointAwsService.STS,
+            // for session manager
+            ec2.InterfaceVpcEndpointAwsService.EC2_MESSAGES,
+            ec2.InterfaceVpcEndpointAwsService.SSM,
+            ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES
+        ].forEach(e => this.vpc.addInterfaceEndpoint(e.shortName, {
+            service: e,
+            securityGroups: [sg]
+        }));
   }
 }
